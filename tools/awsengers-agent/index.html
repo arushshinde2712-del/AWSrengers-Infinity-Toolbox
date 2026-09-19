@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWSengers AI Agent — Infinity Tool Box</title>
+    <link rel="stylesheet" href="../../css/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body><a class="skip-link" href="#main-content">Skip to content</a>
+    <main id="main-content" class="agent-page">
+        <a class="back-link" href="../../index.html">← Back to Infinity Tool Box</a>
+        <section class="agent-card">
+            <span class="eyebrow">THE AWSENGERS • FIXED MEDIA TOOLS</span>
+            <h1>AI Agent</h1>
+            <p class="intro">Ask the backend to transform PDFs, audio, or video with the reference agent's prebuilt tools. Arbitrary code execution is not supported.</p>
+
+            <form id="agentForm">
+                <label for="apiUrl">Backend API URL</label>
+                <input id="apiUrl" type="url" inputmode="url" placeholder="http://localhost:8000" autocomplete="url">
+                <p class="hint">Saved only in this browser. Use your deployed FastAPI URL when hosted remotely.</p>
+
+                <label for="authHeader">Optional auth header name</label>
+                <input id="authHeader" type="text" placeholder="Authorization" autocomplete="off">
+                <label for="authToken">Optional auth token/value</label>
+                <input id="authToken" type="password" placeholder="Bearer … or API key" autocomplete="off">
+                <p class="hint">Leave both blank for local development. Values are stored only in this browser and sent to the configured API.</p>
+
+                <label for="prompt">What should the agent do?</label>
+                <textarea id="prompt" rows="4" required placeholder="Example: Extract the text from this PDF."></textarea>
+
+                <label for="files">Files (PDF, audio, or video; 25 MB each, 5 files max)</label>
+                <input id="files" type="file" multiple accept=".pdf,.mp3,.mp4,.wav,.m4a,.aac,.avi,.mov,.mkv,.flac,.ogg">
+                <p id="fileSummary" class="hint">No files selected.</p>
+
+                <div class="agent-actions">
+                    <button id="submitButton" type="submit">Send to AI Agent</button>
+                    <span id="healthStatus" class="status status-unknown">Checking backend…</span>
+                </div>
+            </form>
+
+            <div id="message" class="message" role="status" aria-live="polite"></div>
+            <a id="downloadLink" class="download-link" hidden></a>
+        </section>
+    </main>
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+<footer class="site-footer"><span>Results are informational and not medical, legal, tax, or financial advice.</span><nav aria-label="Legal"><a href="../../privacy.html">Privacy</a><a href="../../license.html">License &amp; attribution</a></nav></footer></body>
+</html>
