@@ -18,6 +18,8 @@
     const healthStatus = document.getElementById("healthStatus");
     const message = document.getElementById("message");
     const downloadLink = document.getElementById("downloadLink");
+    const subscriptionStatus = document.getElementById("subscriptionStatus");
+    const subscribeButton = document.getElementById("subscribeButton");
 
     function getBaseUrl() {
         return (apiUrlInput.value.trim() || "http://localhost:8000").replace(/\/+$/, "");
@@ -69,6 +71,37 @@
         }
     }
 
+    async function checkSubscription() {
+        try {
+            const response = await fetch(getBaseUrl() + "/subscription/status", { headers: getRequestHeaders() });
+            const data = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(data.detail || "Unable to load subscription");
+            subscriptionStatus.textContent = data.status === "trialing"
+                ? "30-day free trial active (AI Agent plan: INR 99/month after trial)."
+                : "Plan status: " + data.status + " (INR 99/month).";
+        } catch (error) {
+            subscriptionStatus.textContent = "Subscription status unavailable: " + error.message;
+        }
+    }
+
+    subscribeButton.addEventListener("click", async function () {
+        subscribeButton.disabled = true;
+        try {
+            const response = await fetch(getBaseUrl() + "/subscription/checkout", { method: "POST", headers: getRequestHeaders() });
+            const data = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(data.detail || "Subscription request failed");
+            if (data.checkout_url) {
+                window.location.href = data.checkout_url;
+            } else {
+                subscriptionStatus.textContent = "Plan active: INR 99/month.";
+            }
+        } catch (error) {
+            setMessage("Subscription unavailable: " + error.message, true);
+        } finally {
+            subscribeButton.disabled = false;
+        }
+    });
+
     const configured = window.AWSENGERS_AGENT_CONFIG || {};
     apiUrlInput.value = localStorage.getItem("awsengersAgentApiUrl") || configured.apiUrl || "http://localhost:8000";
     authHeaderInput.value = localStorage.getItem("awsengersAgentAuthHeader") || configured.authHeader || "";
@@ -79,10 +112,12 @@
             localStorage.setItem("awsengersAgentAuthHeader", authHeaderInput.value.trim());
             localStorage.setItem("awsengersAgentAuthToken", authTokenInput.value.trim());
             checkHealth();
+            checkSubscription();
         });
     });
     filesInput.addEventListener("change", updateFileSummary);
     checkHealth();
+    checkSubscription();
 
     form.addEventListener("submit", async function (event) {
         event.preventDefault();
