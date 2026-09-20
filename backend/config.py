@@ -44,6 +44,10 @@ MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(25 * 1024 * 1
 MAX_UPLOAD_FILES: int = int(os.environ.get("MAX_UPLOAD_FILES", "5"))
 MAX_PROMPT_LENGTH: int = int(os.environ.get("MAX_PROMPT_LENGTH", "4000"))
 TEMP_RETENTION_SECONDS: int = int(os.environ.get("TEMP_RETENTION_SECONDS", "3600"))
+TRIAL_DAYS: int = int(os.environ.get("AI_AGENT_TRIAL_DAYS", "30"))
+SUBSCRIPTION_PROVIDER: str = os.environ.get("SUBSCRIPTION_PROVIDER", "dev")
+SUBSCRIPTION_WEBHOOK_SECRET: str = os.environ.get("SUBSCRIPTION_WEBHOOK_SECRET", "")
+BILLING_CHECKOUT_URL: str = os.environ.get("BILLING_CHECKOUT_URL", "")
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 # ACTIVE_MODEL   : human-readable model name string (for /health and logging)
@@ -80,7 +84,14 @@ else:
     ACTIVE_MODEL = f"ollama/{_OLLAMA_MODEL_ID}"
 
     def get_model():
-        from strands.models import OllamaModel  # type: ignore[import-untyped]
+        # OllamaModel is a submodule export in current strands-agents releases.
+        try:
+            from strands.models.ollama import OllamaModel  # type: ignore[import-untyped]
+        except (ImportError, AttributeError) as exc:
+            raise RuntimeError(
+                "Local agent configuration requires the Strands Ollama adapter. "
+                "Install a compatible strands-agents release or set USE_BEDROCK=true."
+            ) from exc
         return OllamaModel(
             host=_OLLAMA_BASE_URL,
             model_id=_OLLAMA_MODEL_ID,

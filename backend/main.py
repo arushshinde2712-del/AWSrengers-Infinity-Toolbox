@@ -12,11 +12,13 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import re
 import shutil
 import time
 import uuid
+from urllib.parse import urlencode
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,14 @@ from .config import (
     MAX_UPLOAD_FILES,
     TEMP_RETENTION_SECONDS,
     UPLOAD_TMP_DIR,
+    SUBSCRIPTION_WEBHOOK_SECRET,
+    BILLING_CHECKOUT_URL,
     get_model,
 )
 from .media_tools import ALL_MEDIA_TOOLS
+from .file_tools import ALL_FILE_TOOLS, reset_workspace, set_workspace
 from .security import cedar_engine
+from .subscriptions import subscription_store
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +70,8 @@ You are the Omni-File Agent. You have a suite of dedicated tools for media and P
 - extract_audio(input_video, output_audio): Strips video track and saves only audio.
 - trim_media(input_path, output_path, start_time, end_time): Trims media using HH:MM:SS or SS timestamps.
 - compress_video(input_path, output_path, crf): Compresses a video to reduce file size.
+- inspect_file(path): Safely inspects a bounded UTF-8 text file in the working directory.
+- edit_file(path, content): Safely edits an approved text file in the working directory.
 
 When a user requests a file operation, you MUST use the provided tools. You are STRICTLY FORBIDDEN from generating or executing raw Python scripts for these standard tasks. Execute the tool silently, and return only the final output file path and a brief success message.
 
@@ -74,7 +82,7 @@ Format rule: Always wrap the final generated output file path in your reply form
 agent = Agent(
     model=get_model(),
     system_prompt=AGENT_SYSTEM_PROMPT,
-    tools=ALL_MEDIA_TOOLS,
+    tools=ALL_MEDIA_TOOLS + ALL_FILE_TOOLS,
 )
 
 agent_lock = asyncio.Lock()
@@ -152,6 +160,53 @@ async def health() -> dict[str, str]:
     }
 
 
+def _user_id(request: Request) -> str:
+    value = request.headers.get("X-User-ID", "dev-user").strip()
+    if not value or len(value) > 128 or any(ord(char) < 32 for char in value):
+        raise HTTPException(status_code=400, detail="Invalid X-User-ID")
+    return value
+
+
+@app.get("/subscription/status", tags=["subscription"])
+async def subscription_status(request: Request) -> dict[str, Any]:
+    return subscription_store.status(_user_id(request)).as_dict()
+
+
+@app.post("/subscription/subscribe", tags=["subscription"])
+async def subscribe(request: Request) -> dict[str, Any]:
+    return subscription_store.activate(_user_id(request)).as_dict()
+
+
+@app.post("/subscription/checkout", tags=["subscription"])
+async def checkout(request: Request) -> dict[str, Any]:
+    """Return a configured provider checkout URL, or activate the dev plan."""
+    user_id = _user_id(request)
+    if BILLING_CHECKOUT_URL:
+        separator = "&" if "?" in BILLING_CHECKOUT_URL else "?"
+        return {
+            "checkout_url": f"{BILLING_CHECKOUT_URL}{separator}{urlencode({'user_id': user_id})}",
+            "provider": subscription_store.status(user_id).provider,
+        }
+    if subscription_store.status(user_id).provider == "dev":
+        return subscription_store.activate(user_id).as_dict()
+    raise HTTPException(
+        status_code=503,
+        detail="Billing checkout is not configured",
+    )
+
+
+@app.post("/subscription/webhook", tags=["subscription"])
+async def subscription_webhook(request: Request) -> dict[str, Any]:
+    if SUBSCRIPTION_WEBHOOK_SECRET and not hmac.compare_digest(
+        request.headers.get("X-Webhook-Secret", ""), SUBSCRIPTION_WEBHOOK_SECRET
+    ):
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+    payload = await request.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("event"), str) or not isinstance(payload.get("user_id"), str):
+        raise HTTPException(status_code=400, detail="Webhook requires event and user_id")
+    return subscription_store.apply_webhook(payload["user_id"], payload["event"]).as_dict()
+
+
 @app.post("/process", tags=["agent"])
 async def process(
     request: Request,
@@ -171,6 +226,10 @@ async def process(
     3. Invokes Strands Agent under asyncio.Lock concurrency guard.
     4. Detects output files and returns clean assistant message and download URL.
     """
+    try:
+        subscription_store.require_access(_user_id(request))
+    except PermissionError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     if len(prompt) > MAX_PROMPT_LENGTH:
         raise HTTPException(status_code=413, detail=f"Prompt exceeds {MAX_PROMPT_LENGTH} characters")
     if len(files) > MAX_UPLOAD_FILES:
@@ -188,6 +247,7 @@ async def process(
 
     saved: list[tuple[str, str]] = []
 
+    workspace_token = set_workspace(tmp_dir)
     try:
         # ── 1. Persist uploads to temp directory ──────────────────────────────
         def _save_upload(upload_file, dest_path):
@@ -336,6 +396,8 @@ async def process(
             status_code=500,
             detail=f"Agent error: {exc}",
         ) from exc
+    finally:
+        reset_workspace(workspace_token)
 
 
 @app.get("/download/{request_id}/{filename}", tags=["agent"])

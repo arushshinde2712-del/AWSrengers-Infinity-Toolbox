@@ -17,6 +17,28 @@ from strands import tool
 
 logger = logging.getLogger(__name__)
 
+
+def _validate_media(input_path: str, output_path: str | None = None) -> None:
+    source = Path(input_path)
+    if not source.is_file():
+        raise ValueError(f"Input file not found: {input_path}")
+    if output_path is not None and source.resolve() == Path(output_path).resolve():
+        raise ValueError("Output path must be different from input path")
+
+
+def _require_binary(name: str = "ffmpeg") -> None:
+    if shutil.which(name) is None:
+        raise RuntimeError(f"{name} binary is not installed or not on PATH")
+
+
+def _run_media(stream):
+    _require_binary("ffmpeg")
+    try:
+        return stream.run(overwrite_output=True, quiet=True)
+    except ffmpeg.Error as exc:
+        detail = (exc.stderr or b"").decode(errors="replace").strip()
+        raise RuntimeError(f"ffmpeg processing failed{': ' + detail if detail else ''}") from exc
+
 # --- PDF OPERATIONS ---
 
 @tool
@@ -121,8 +143,10 @@ def convert_media(input_path: str, output_path: str) -> str:
       The absolute file path of the converted media file.
     """
     logger.info("Tool convert_media called: %s -> %s", input_path, output_path)
+    _validate_media(input_path, output_path)
+    _require_binary()
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    ffmpeg.input(input_path).output(output_path).run(overwrite_output=True, quiet=True)
+    _run_media(ffmpeg.input(input_path).output(output_path))
     return output_path
 
 
@@ -139,8 +163,9 @@ def extract_audio(input_video: str, output_audio: str) -> str:
       The absolute file path of the extracted audio file.
     """
     logger.info("Tool extract_audio called: %s -> %s", input_video, output_audio)
+    _validate_media(input_video, output_audio)
     Path(output_audio).parent.mkdir(parents=True, exist_ok=True)
-    ffmpeg.input(input_video).audio.output(output_audio).run(overwrite_output=True, quiet=True)
+    _run_media(ffmpeg.input(input_video).audio.output(output_audio))
     return output_audio
 
 
@@ -159,15 +184,14 @@ def trim_media(input_path: str, output_path: str, start_time: str, end_time: str
       The absolute file path of the trimmed media file.
     """
     logger.info("Tool trim_media called: %s (%s -> %s) -> %s", input_path, start_time, end_time, output_path)
+    _validate_media(input_path, output_path)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     # Ensure output is never identical to input
-    if Path(input_path).resolve() == out.resolve():
-        out = out.parent / f"trimmed_{out.name}"
-        output_path = str(out)
-
-    ffmpeg.input(input_path, ss=start_time, to=end_time).output(output_path).run(overwrite_output=True, quiet=True)
+    if not start_time or not end_time:
+        raise ValueError("Start and end times are required")
+    _run_media(ffmpeg.input(input_path, ss=start_time, to=end_time).output(output_path))
     return output_path
 
 
@@ -185,9 +209,25 @@ def compress_video(input_path: str, output_path: str, crf: int = 28) -> str:
       The absolute file path of the compressed video file.
     """
     logger.info("Tool compress_video called: %s (crf=%d) -> %s", input_path, crf, output_path)
+    _validate_media(input_path, output_path)
+    if not 18 <= crf <= 35:
+        raise ValueError("CRF must be between 18 and 35")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    ffmpeg.input(input_path).output(output_path, vcodec='libx264', crf=crf).run(overwrite_output=True, quiet=True)
+    _run_media(ffmpeg.input(input_path).output(output_path, vcodec='libx264', crf=crf))
     return output_path
+
+
+@tool
+def inspect_media(input_path: str) -> str:
+    """Return ffprobe metadata for a media file, with actionable binary errors."""
+    _validate_media(input_path)
+    _require_binary("ffprobe")
+    try:
+        probe = ffmpeg.probe(input_path)
+    except ffmpeg.Error as exc:
+        detail = (exc.stderr or b"").decode(errors="replace").strip()
+        raise RuntimeError(f"ffprobe inspection failed{': ' + detail if detail else ''}") from exc
+    return str(probe)
 
 
 # Export all media tools as a list for agent binding
@@ -200,4 +240,5 @@ ALL_MEDIA_TOOLS = [
     extract_audio,
     trim_media,
     compress_video,
+    inspect_media,
 ]

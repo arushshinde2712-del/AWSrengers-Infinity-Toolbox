@@ -7,6 +7,9 @@ tools and talks to the reference FastAPI contract:
 - `GET /health`
 - `POST /process` with `prompt` and zero or more `files`
 - `GET /download/{request_id}/{filename}`
+- `GET /subscription/status` and `POST /subscription/subscribe`
+- `POST /subscription/checkout`
+- `POST /subscription/webhook` for provider callbacks
 
 ## Run locally
 
@@ -44,9 +47,20 @@ Set `MAX_UPLOAD_BYTES`, `MAX_UPLOAD_FILES`, `MAX_PROMPT_LENGTH`, and
 the AWS/Bedrock settings documented in `backend\config.py`; provide credentials
 through the runtime environment or IAM, never in this project.
 
-The integrated agent intentionally exposes only the reference's fixed PDF/media
-tools. It does not execute arbitrary Python, shell commands, or user-supplied
-scripts.
+The integrated agent intentionally exposes fixed PDF/media tools plus bounded
+`inspect_file` and `edit_file` tools. File tools are confined to the request
+workspace, reject binary/oversized content, and allow only common text
+extensions. It does not execute arbitrary Python, shell commands, or scripts.
+
+Agent actions require the configured user's 30-day trial or active subscription.
+The development provider is in-memory and identifies users with `X-User-ID`
+(default `dev-user`); production integrations can replace the provider and use
+the webhook hook. The AI Agent plan is INR 99/month after the trial. Set
+`SUBSCRIPTION_PROVIDER`, `AI_AGENT_TRIAL_DAYS`, and
+`SUBSCRIPTION_WEBHOOK_SECRET` through the environment.
+Set `BILLING_CHECKOUT_URL` to a provider-hosted checkout endpoint in production;
+when it is unset, the development provider activates the in-memory plan
+directly and other providers return a clear configuration error.
 
 ## Optional API authentication
 
