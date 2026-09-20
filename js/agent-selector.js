@@ -5,8 +5,7 @@
 
     const storageKey = "itbLastAgent";
     const labels = {
-        "infinity-agent": "Infinity AI Agent",
-        "samihanpangam-agent": "samihanpangam-dev’s the-AWSengers"
+        "infinity-agent": "Infinity AI Agent"
     };
     const saved = localStorage.getItem(storageKey);
 
